@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Smart Traffic Route Optimizer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        #map { height: 90vh; }
+        #controls { padding: 10px; }
+    </style>
+</head>
+<body>
+<div id="controls">
+    Algorithm:
+    <select id="algo">
+        <option value="dijkstra">Dijkstra</option>
+        <option value="astar">A*</option>
+    </select>
+    <span>Click a start node, then an end node.</span>
+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const nodes = {{ nodes|tojson }};
+const edges = {{ edges|tojson }};
+let startNode = null;
+let endNode = null;
+let markers = {};
+let pathLine = null;
+
+const map = L.map('map').setView([0, 0], 2);
+
+// Simple coordinate transform (scale)
+function toLatLng(node) {
+    return [node.y * 10, node.x * 10]; // scale for display
+}
+
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OSM'
+}).addTo(map);
+
+edges.forEach(e => {
+    const n1 = nodes.find(n => n.id === e.u);
+    const n2 = nodes.find(n => n.id === e.v);
+    L.polyline([toLatLng(n1), toLatLng(n2)], {color: 'gray'}).addTo(map);
+});
+
+nodes.forEach(n => {
+    const m = L.marker(toLatLng(n)).addTo(map).bindTooltip(n.name);
+    m.on('click', () => {
+        if (startNode === null) {
+            startNode = n.id;
+            m.bindTooltip("START: " + n.name).openTooltip();
+        } else if (endNode === null) {
+            endNode = n.id;
+            m.bindTooltip("END: " + n.name).openTooltip();
+            requestPath();
+        } else {
+            resetSelection();
+        }
+    });
+    markers[n.id] = m;
+});
+
+function resetSelection() {
+    startNode = null;
+    endNode = null;
+    Object.values(markers).forEach(m => m.closeTooltip());
+    if (pathLine) {
+        pathLine.remove();
+        pathLine = null;
+    }
+}
+
+function requestPath() {
+    fetch("/find_path", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            src: startNode,
+            dst: endNode,
+            algo: document.getElementById("algo").value
+        })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.error) {
+            alert(data.error);
+            resetSelection();
+        } else {
+            const coords = data.path.map(id => toLatLng(nodes.find(n => n.id === id)));
+            pathLine = L.polyline(coords, {color: 'red'}).addTo(map);
+            alert("Path cost: " + data.cost);
+        }
+    });
+}
+</script>
+</body>
+</html>
